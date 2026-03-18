@@ -50,7 +50,7 @@ class ReceiptExtractor:
             return ""
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
-            return
+            return ""
 
         messages = [
             {
