@@ -1,8 +1,9 @@
 import logging
 
 import uvicorn
-from api.app import app
-from logging_config import setup_logging
+
+from receipt_extractor.api.app import app
+from receipt_extractor.logging_config import setup_logging
 
 if __name__ == "__main__":
     setup_logging()
