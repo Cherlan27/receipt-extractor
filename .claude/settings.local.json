@@ -3,7 +3,19 @@
     "allow": [
       "PowerShell(Get-ChildItem -Path \"d:\\\\Projects\\\\receipt_extractor\" -Force | Select-Object Name, @{Name=\"Type\"; Expression={if\\($_.PSIsContainer\\){\"DIR\"}else{\"FILE\"}}} | Format-Table -AutoSize)",
       "PowerShell(Get-ChildItem -Path \"d:\\\\Projects\\\\receipt_extractor\\\\src\" -Recurse | Select-Object FullName | ForEach-Object { $_.FullName })",
-      "Bash(not exist *)"
+      "Bash(not exist *)",
+      "Bash(find . -maxdepth 2 -iname \"README*\")",
+      "Bash(find .vscode -maxdepth 1)",
+      "Bash(.venv/Scripts/python -c \"import httpx, fastapi, starlette; print\\('httpx', httpx.__version__\\); print\\('fastapi', fastapi.__version__\\)\")",
+      "Bash(.venv/Scripts/python -c \"import receipt_extractor; print\\('pkg ok', receipt_extractor.__file__\\)\")",
+      "Bash(.venv/Scripts/python -c \"import pytest; print\\('pytest', pytest.__version__\\)\")",
+      "Bash(poetry add *)",
+      "Bash(poetry run *)",
+      "Bash(git status *)",
+      "Bash(git check-ignore *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
