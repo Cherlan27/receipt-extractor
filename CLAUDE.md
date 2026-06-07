@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Receipt Extractor is a FastAPI-based service that extracts text from receipt images using the GLM-OCR model from HuggingFace. It uses PyTorch and transformer models to perform optical character recognition on receipt images and return extracted text.
+Receipt Extractor is a FastAPI-based service that extracts text from receipt images using the GLM-OCR model from HuggingFace, and additionally exposes a local LLM chat-completion endpoint. It uses PyTorch and transformer models to perform OCR on receipt images and to run a separate causal-LM for general text generation.
 
 ## Setup and Dependencies
 
@@ -27,6 +27,7 @@ poetry shell
 - **Transformers**: HuggingFace model loading and inference (from main branch)
 - **Pillow**: Image processing (pillow@12.1)
 - **Accelerate**: GPU acceleration (accelerate@1.12)
+- **load-dotenv**: Loads `.env` into the environment (used by `LlmClient` to read `LLM_MODEL_PATH`)
 
 ### Development Dependencies
 - **Pre-commit**: Code quality hooks (ruff check/format, isort, trailing-whitespace, merge-conflict detection)
@@ -58,71 +59,103 @@ poetry run isort src/
 ```
 
 ### Testing
-Currently, there are minimal tests in the `tests/` directory. No test runner is configured. Consider adding pytest for automated testing of the ReceiptExtractor class and API endpoints.
+Currently, there are minimal tests in the `tests/` directory. No test runner is configured. Consider adding pytest for automated testing of the `ReceiptExtractor`/`LlmClient` classes and API endpoints.
 
 ## Architecture
 
 ### High-Level Flow
 1. **API Layer** (`src/receipt_extractor/api/`): FastAPI application with CORS middleware
-2. **Routing** (`src/receipt_extractor/api/router/receipt_processing.py`): Handles `POST /extract_text` endpoint
-3. **Services** (`src/receipt_extractor/services/`): Core business logic for image processing
-4. **Main Entry Point** (`src/receipt_extractor/main.py`): Starts Uvicorn server with FastAPI app
+2. **Dependency Injection** (`src/receipt_extractor/api/deps.py`): FastAPI `Depends` providers that pull shared singletons (`ReceiptExtractor`, `LlmClient`) off `request.app.state`
+3. **Routing** (`src/receipt_extractor/api/router/`): one router module per feature area, each declaring its own `APIRouter` and included in `app.py`
+4. **Services / LLM clients** (`src/receipt_extractor/services/`, `src/receipt_extractor/llm/`): model-loading and inference logic, kept independent of FastAPI
+5. **Models** (`src/receipt_extractor/models/`): Pydantic request/response schemas shared between routers and clients
+6. **Main Entry Point** (`src/receipt_extractor/main.py`): Starts Uvicorn server with the FastAPI app
 
 ### Key Components
 
-#### ReceiptExtractor Class (`src/receipt_extractor/services/extractor.py`)
+#### ReceiptExtractor (`src/receipt_extractor/services/extractor.py`)
 - **Purpose**: Loads and manages the GLM-OCR model, performs text extraction from images
-- **Model**: `zai-org/GLM-OCR` (image-to-text model from HuggingFace)
+- **Model**: `zai-org/GLM-OCR` (image-to-text model from HuggingFace), loaded with `device_map="auto"`
 - **Key Methods**:
-  - `__init__()`: Loads the model and processor on initialization with auto device mapping
-  - `get_text(image: bytes) -> str`: Takes raw image bytes, returns extracted text
-    - Handles image loading errors gracefully
-    - Uses the processor's chat template API to prepare inputs
-    - Generates up to 8192 tokens of output
-    - Returns empty string on failure
+  - `__init__()`: Loads the model and processor on initialization
+  - `get_text(image: bytes) -> str`: Takes raw image bytes, builds a chat-template prompt (`{"type": "image", ...}` + OCR instruction), generates up to 8192 tokens, and returns the decoded text
+    - Returns `""` on `UnidentifiedImageError`/unexpected errors instead of raising
+
+#### LlmClient (`src/receipt_extractor/llm/client.py`)
+- **Purpose**: Loads a separate local causal-LM (e.g. an OpenChat-style model) and runs chat-style generation independent of the OCR pipeline
+- **Model path**: `LLM_MODEL_PATH` env var (loaded via `load_dotenv()`), defaulting to `./openchat_model`; loaded with `torch_dtype=torch.float16` onto CUDA if available, else CPU
+- **Key Methods**:
+  - `generate(req: PromptData) -> dict`: Prepends a fixed `system_prompt` (currently hardcoded to "Answer in French" — check before relying on it for other languages), applies the tokenizer's chat template, generates `req.max_new_tokens` tokens, and returns `{"response": <decoded text>}`
+
+#### Pydantic Schemas (`src/receipt_extractor/models/llm_message.py`)
+- `ChatMessage`: `{role: str, content: str}`
+- `PromptData`: `{messages: list[ChatMessage], max_new_tokens: int = 1000}` — request body for `/llm/generate`
+- `Word`, `TopicRequest`: additional schemas not yet wired up to any endpoint
 
 #### FastAPI App (`src/receipt_extractor/api/app.py`)
-- **Lifespan Management**: ReceiptExtractor instance is created once on startup and shared across requests via `app.state.extractor`
+- **Lifespan Management**: `ReceiptExtractor` and `LlmClient` are each instantiated once on startup (loading their models) and shared across requests via `app.state.extractor` / `app.state.llm_client`, then torn down on shutdown
 - **CORS**: Allows all origins, credentials, methods, and headers
-- **Router**: Includes `process_router` with receipt extraction endpoint
+- **Routers**: Includes `process_router` (OCR) and `llm_router` (LLM generation)
 
-#### API Router (`src/receipt_extractor/api/router/receipt_processing.py`)
-- **POST /extract_text**: Accepts multipart file upload, returns extracted text string
-  - Reads image from request, delegates to extractor service
+#### Routers (`src/receipt_extractor/api/router/`)
+- `receipt_processing.py` — `process_router`: **POST /extract_text** accepts a multipart image upload, reads the bytes, and delegates to `ReceiptExtractor.get_text()` via `Depends(get_extractor)`
+- `generate.py` — `llm_router` (prefix `/llm`): **POST /llm/generate** accepts a `PromptData` body and delegates to `LlmClient.generate()` via `Depends(get_llm_client)`
 
 #### Logging (`src/receipt_extractor/logging_config.py`)
 - Simple INFO-level logging with timestamp, level, logger name, and message
 
 ### Data Flow
+
+OCR pipeline:
 ```
 Client Request (image file)
         ↓
-    Router (/extract_text)
+    process_router (POST /extract_text)
         ↓
     ReceiptExtractor.get_text()
         ↓
     GLM-OCR Model (HuggingFace)
         ↓
-    Extracted Text (string)
+    Extracted Text (string) → API Response
+```
+
+LLM generation pipeline:
+```
+Client Request (PromptData: messages + max_new_tokens)
         ↓
-    API Response
+    llm_router (POST /llm/generate)
+        ↓
+    LlmClient.generate()
+        ↓
+    Local causal-LM (path from LLM_MODEL_PATH)
+        ↓
+    {"response": <generated text>} → API Response
 ```
 
 ### Configuration
-- No config files currently used. Environment variables are defined in `.env`:
-  - `USERNAME`, `PASSWORD`, `DOWNLOAD_FOALDER` (for external integrations, not yet implemented)
+- Environment variables are defined in `.env` and loaded via `load_dotenv()`:
+  - `USERNAME`, `PASSWORD`, `DOWNLOAD_FOALDER` — for the IMAP/email-download integration (see `notebooks/read_mails.ipynb`); not yet wired into the API
+  - `LLM_MODEL_PATH` — filesystem path to the local causal-LM used by `LlmClient`
 - Debug configuration available in `.vscode/launch.json` for debugpy
+
+### Work in progress / stub modules
+These exist on disk but are currently empty or reference modules that don't exist yet — don't assume they're functional without checking first:
+- `src/receipt_extractor/services/classifier.py` — empty
+- `src/receipt_extractor/config.py` — empty
+- `src/receipt_extractor/services/__init__db.py` — imports `receipt_extractor.services.database` (Base/engine), which does not currently exist in the tree
+- `src/receipt_extractor/utils/` — empty directory
 
 ## Notes for Development
 
 ### GPU Support
-The project is configured for CUDA 12.8. Verify GPU availability with the `ReceiptExtractor.get_gpu_state()` static method (currently prints to stdout). Update PyTorch wheel source in `pyproject.toml` if using different CUDA version.
+The project is configured for CUDA 12.8. Verify GPU availability with the `ReceiptExtractor.get_gpu_state()` static method (currently prints to stdout). Update PyTorch wheel source in `pyproject.toml` if using different CUDA version. `LlmClient` separately checks `torch.cuda.is_available()` and falls back to CPU.
 
 ### Model Loading
-The GLM-OCR model is downloaded from HuggingFace on first instantiation. Large model weights will be cached locally. First run will require internet connectivity and may take time.
+Both the GLM-OCR model and the local LLM are loaded once at FastAPI startup (in `lifespan`), so the first request after boot doesn't pay the load cost — but server startup itself will be slow and requires the model weights to be available (HuggingFace cache for GLM-OCR, local path at `LLM_MODEL_PATH` for the LLM).
 
 ### Notebooks
-A Jupyter notebook exists at `src/receipt_extractor/notebooks/image_to_text.ipynb` for experimental testing of the OCR pipeline.
+- `src/receipt_extractor/notebooks/image_to_text.ipynb` — experimental testing of the OCR pipeline
+- `src/receipt_extractor/notebooks/read_mails.ipynb` — experimental IMAP email reading (related to the `USERNAME`/`PASSWORD`/`DOWNLOAD_FOALDER` env vars)
 
 ### Testing Data
 Sample receipt images are in `data/` directory (aldi_quittung.jpeg, test.jpg, etc.) for manual testing of the extraction service.
