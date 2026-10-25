@@ -12,9 +12,11 @@ def client():
     with (
         patch("receipt_extractor.api.app.ReceiptExtractor") as mock_extractor_cls,
         patch("receipt_extractor.api.app.LlmClient") as mock_llm_client_cls,
+        patch("receipt_extractor.api.app.ReceiptClassifier") as mock_classifier_cls,
     ):
         mock_extractor_cls.return_value = MagicMock(name="ReceiptExtractor")
         mock_llm_client_cls.return_value = MagicMock(name="LlmClient")
+        mock_classifier_cls.return_value = MagicMock(name="ReceiptClassifier")
 
         with TestClient(app) as test_client:
             yield test_client
@@ -28,3 +30,8 @@ def mock_extractor(client):
 @pytest.fixture
 def mock_llm_client(client):
     return client.app.state.llm_client
+
+
+@pytest.fixture
+def mock_classifier(client):
+    return client.app.state.classifier

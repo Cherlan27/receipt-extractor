@@ -3,9 +3,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from receipt_extractor.api.router.classification import classification_router
 from receipt_extractor.api.router.generate import llm_router
 from receipt_extractor.api.router.receipt_processing import process_router
 from receipt_extractor.llm.client import LlmClient
+from receipt_extractor.services.classifier import ReceiptClassifier
 from receipt_extractor.services.extractor import ReceiptExtractor
 
 
@@ -13,7 +15,9 @@ from receipt_extractor.services.extractor import ReceiptExtractor
 async def lifespan(app: FastAPI):
     app.state.extractor = ReceiptExtractor()
     app.state.llm_client = LlmClient()
+    app.state.classifier = ReceiptClassifier(app.state.llm_client)
     yield
+    del app.state.classifier
     del app.state.extractor
     del app.state.llm_client
 
@@ -31,3 +35,4 @@ app.add_middleware(
 
 app.include_router(process_router)
 app.include_router(llm_router)
+app.include_router(classification_router)
