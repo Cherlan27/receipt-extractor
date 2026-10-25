@@ -75,7 +75,7 @@ class ReceiptExtractor:
 
         output_text = self.processor.decode(
             generated_ids[0][inputs["input_ids"].shape[1] :],
-            skip_special_tokens=False,
+            skip_special_tokens=True,
         )
 
         return output_text

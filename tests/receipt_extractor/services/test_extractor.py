@@ -83,7 +83,27 @@ class TestGetText:
 
         decoded_ids, decode_kwargs = extractor.processor.decode.call_args
         assert torch.equal(decoded_ids[0], torch.tensor([6, 7]))
-        assert decode_kwargs["skip_special_tokens"] is False
+        assert decode_kwargs["skip_special_tokens"] is True
+
+    def test_returns_decoded_text_verbatim(self, extractor):
+        receipt_text = "ALDI\nBIO TOMATENMARK\n1,15 € 1\n\nZU ZAHLEN\n21,89 €"
+        self._prepare_generation(extractor, decoded=receipt_text)
+
+        assert extractor.get_text(_sample_image_bytes()) == receipt_text
+
+    def test_returns_empty_string_when_output_has_only_control_tokens(self, extractor):
+        # With special tokens skipped, an output of only "<|user|>" decodes to "".
+        self._prepare_generation(extractor, decoded="")
+
+        assert extractor.get_text(_sample_image_bytes()) == ""
+
+    @staticmethod
+    def _prepare_generation(extractor, decoded):
+        extractor.processor.apply_chat_template.return_value = _FakeBatchEncoding(
+            {"input_ids": torch.tensor([[1, 2, 3]])}
+        )
+        extractor.model.generate.return_value = [torch.tensor([1, 2, 3, 4])]
+        extractor.processor.decode.return_value = decoded
 
     def test_returns_empty_string_for_unparsable_image_bytes(self, extractor):
         result = extractor.get_text(b"this is not an image")

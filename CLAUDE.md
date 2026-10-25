@@ -79,7 +79,7 @@ Currently, there are minimal tests in the `tests/` directory. No test runner is 
 - **Model**: `zai-org/GLM-OCR` (image-to-text model from HuggingFace), loaded with `device_map="auto"`
 - **Key Methods**:
   - `__init__()`: Loads the model and processor on initialization
-  - `get_text(image: bytes) -> str`: Takes raw image bytes, builds a chat-template prompt (`{"type": "image", ...}` + OCR instruction), generates up to 8192 tokens, and returns the decoded text
+  - `get_text(image: bytes) -> str`: Takes raw image bytes, builds a chat-template prompt (`{"type": "image", ...}` + OCR instruction), generates up to 8192 tokens, and returns the decoded text with special tokens skipped (GLM-OCR ends its answer with the end-of-turn token `<|user|>`, which must not leak into the OCR text)
     - Returns `""` on `UnidentifiedImageError`/unexpected errors instead of raising
 
 #### LlmClient (`src/receipt_extractor/llm/client.py`)
