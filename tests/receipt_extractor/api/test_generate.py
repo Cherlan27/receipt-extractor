@@ -29,7 +29,7 @@ class TestGenerateEndpoint:
 
         assert response.status_code == 200
         (called_request,), _ = mock_llm_client.generate.call_args
-        assert called_request.max_new_tokens == 1000
+        assert called_request.max_new_tokens == 8192
 
     def test_returns_422_for_missing_messages(self, client, mock_llm_client):
         response = client.post("/llm/generate", json={})

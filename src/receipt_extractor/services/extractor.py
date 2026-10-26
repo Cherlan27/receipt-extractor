@@ -10,6 +10,18 @@ MODEL_PATH = "zai-org/GLM-OCR"
 logger = logging.getLogger(__name__)
 
 
+def strip_special_tokens(text: str, tokenizer) -> str:
+    """
+    Remove every special token the tokenizer knows from the text.
+
+    `skip_special_tokens=True` is not enough for GLM-OCR: tokens such as
+    `<|begin_of_box|>` are listed as special but are still decoded.
+    """
+    for token in sorted(tokenizer.all_special_tokens, key=len, reverse=True):
+        text = text.replace(token, "")
+    return text
+
+
 class ReceiptExtractor:
     def __init__(self, model_path="zai-org/GLM-OCR"):
         self.model_path = model_path
@@ -45,6 +57,7 @@ class ReceiptExtractor:
         """
         try:
             img = Image.open(io.BytesIO(image))
+            img.load()  # Image.open is lazy: fail here on truncated/corrupt bodies
         except UnidentifiedImageError as e:
             logger.error(f"Invalid image format: {e}")
             return ""
@@ -75,7 +88,7 @@ class ReceiptExtractor:
 
         output_text = self.processor.decode(
             generated_ids[0][inputs["input_ids"].shape[1] :],
-            skip_special_tokens=False,
+            skip_special_tokens=True,
         )
 
-        return output_text
+        return strip_special_tokens(output_text, self.processor.tokenizer)

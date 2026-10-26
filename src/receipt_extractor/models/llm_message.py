@@ -15,7 +15,7 @@ class ChatMessage(BaseModel):
 
 class PromptData(BaseModel):
     messages: list[ChatMessage]
-    max_new_tokens: int = 1000
+    max_new_tokens: int = 8192
 
 
 class TopicRequest(BaseModel):

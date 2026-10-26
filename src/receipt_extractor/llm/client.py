@@ -5,43 +5,49 @@ import torch
 from load_dotenv import load_dotenv
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from receipt_extractor.models.llm_message import ChatMessage, PromptData
+from receipt_extractor.models.llm_message import PromptData
 
 load_dotenv()
+
+DEFAULT_MODEL_PATH = "Qwen/Qwen3.5-9B"
 
 
 class LlmClient:
     def __init__(self, model_path: Optional[str] = None):
-        self.model_path = model_path or os.getenv("LLM_MODEL_PATH", "./openchat_model")
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model_path = model_path or os.getenv("LLM_MODEL_PATH", DEFAULT_MODEL_PATH)
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
         self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_path, torch_dtype=torch.float16
-        ).to(self.device)
+            self.model_path,
+            torch_dtype=torch.float16,
+            device_map="auto",
+        )
         self.model.eval()
 
-    @property
-    def system_prompt(self):
-        return ChatMessage(
-            role="system",
-            content="Answer in French",
-        )
-
-    def generate(self, req: PromptData) -> dict:
+    def chat(
+        self,
+        messages: list[dict],
+        max_new_tokens: int,
+        do_sample: bool = False,
+    ) -> str:
         prompt = self.tokenizer.apply_chat_template(
-            [self.system_prompt.model_dump()] + [m.model_dump() for m in req.messages],
+            messages,
             tokenize=False,
             add_generation_prompt=True,
+            enable_thinking=False,
         )
 
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
         with torch.no_grad():
-            outputs = self.model.generate(**inputs, max_new_tokens=req.max_new_tokens)
+            outputs = self.model.generate(
+                **inputs, max_new_tokens=max_new_tokens, do_sample=do_sample
+            )
 
         input_length = inputs["input_ids"].shape[-1]
-        output_text = self.tokenizer.decode(
+        return self.tokenizer.decode(
             outputs[0][input_length:], skip_special_tokens=True
         )
 
-        return {"response": output_text}
+    def generate(self, req: PromptData) -> dict:
+        response = self.chat([m.model_dump() for m in req.messages], req.max_new_tokens)
+        return {"response": response}

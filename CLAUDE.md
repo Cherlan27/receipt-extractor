@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Receipt Extractor is a FastAPI-based service that extracts text from receipt images using the GLM-OCR model from HuggingFace, and additionally exposes a local LLM chat-completion endpoint. It uses PyTorch and transformer models to perform OCR on receipt images and to run a separate causal-LM for general text generation.
+Receipt Extractor is a FastAPI-based service that extracts text from receipt images using the GLM-OCR model from HuggingFace, classifies the purchased products into categories with a local LLM, and additionally exposes a generic local LLM chat-completion endpoint. It uses PyTorch and transformer models to perform OCR on receipt images and to run a separate causal-LM (default `Qwen/Qwen3.5-9B`) for classification and general text generation.
 
 ## Setup and Dependencies
 
@@ -28,6 +28,7 @@ poetry shell
 - **Pillow**: Image processing (pillow@12.1)
 - **Accelerate**: GPU acceleration (accelerate@1.12)
 - **load-dotenv**: Loads `.env` into the environment (used by `LlmClient` to read `LLM_MODEL_PATH`)
+- **LangChain** (`langchain`, used via `langchain_core`): classification prompt (`ChatPromptTemplate`) and output parsing (`PydanticOutputParser`) only — the model itself is still loaded through `transformers`
 
 ### Development Dependencies
 - **Pre-commit**: Code quality hooks (ruff check/format, isort, trailing-whitespace, merge-conflict detection)
@@ -65,7 +66,7 @@ Currently, there are minimal tests in the `tests/` directory. No test runner is 
 
 ### High-Level Flow
 1. **API Layer** (`src/receipt_extractor/api/`): FastAPI application with CORS middleware
-2. **Dependency Injection** (`src/receipt_extractor/api/deps.py`): FastAPI `Depends` providers that pull shared singletons (`ReceiptExtractor`, `LlmClient`) off `request.app.state`
+2. **Dependency Injection** (`src/receipt_extractor/api/deps.py`): FastAPI `Depends` providers that pull shared singletons (`ReceiptExtractor`, `LlmClient`, `ReceiptClassifier`) off `request.app.state`
 3. **Routing** (`src/receipt_extractor/api/router/`): one router module per feature area, each declaring its own `APIRouter` and included in `app.py`
 4. **Services / LLM clients** (`src/receipt_extractor/services/`, `src/receipt_extractor/llm/`): model-loading and inference logic, kept independent of FastAPI
 5. **Models** (`src/receipt_extractor/models/`): Pydantic request/response schemas shared between routers and clients
@@ -78,28 +79,38 @@ Currently, there are minimal tests in the `tests/` directory. No test runner is 
 - **Model**: `zai-org/GLM-OCR` (image-to-text model from HuggingFace), loaded with `device_map="auto"`
 - **Key Methods**:
   - `__init__()`: Loads the model and processor on initialization
-  - `get_text(image: bytes) -> str`: Takes raw image bytes, builds a chat-template prompt (`{"type": "image", ...}` + OCR instruction), generates up to 8192 tokens, and returns the decoded text
-    - Returns `""` on `UnidentifiedImageError`/unexpected errors instead of raising
+  - `get_text(image: bytes) -> str`: Takes raw image bytes, builds a chat-template prompt (`{"type": "image", ...}` + OCR instruction), generates up to 8192 tokens, and returns the decoded text with special tokens removed (GLM-OCR ends its answer with the end-of-turn token `<|user|>`, which must not leak into the OCR text). `skip_special_tokens=True` is not enough on its own: `<|begin_of_box|>`/`<|end_of_box|>` are listed as special but still decoded, so `strip_special_tokens()` removes every token in `tokenizer.all_special_tokens` afterwards
+    - Returns `""` on `UnidentifiedImageError`/unexpected errors instead of raising; the image is fully loaded (`img.load()`) inside the `try`, so truncated/corrupt files are rejected up front
 
 #### LlmClient (`src/receipt_extractor/llm/client.py`)
-- **Purpose**: Loads a separate local causal-LM (e.g. an OpenChat-style model) and runs chat-style generation independent of the OCR pipeline
-- **Model path**: `LLM_MODEL_PATH` env var (loaded via `load_dotenv()`), defaulting to `./openchat_model`; loaded with `torch_dtype=torch.float16` onto CUDA if available, else CPU
+- **Purpose**: Task-agnostic wrapper around a local causal-LM, independent of the OCR pipeline. It knows nothing about receipts or prompts.
+- **Model path**: `LLM_MODEL_PATH` env var (local path or HuggingFace id, loaded via `load_dotenv()`), defaulting to `Qwen/Qwen3.5-9B`; loaded with `torch_dtype=torch.float16` and `device_map="auto"` (inputs are moved to `model.device`)
 - **Key Methods**:
-  - `generate(req: PromptData) -> dict`: Prepends a fixed `system_prompt` (currently hardcoded to "Answer in French" — check before relying on it for other languages), applies the tokenizer's chat template, generates `req.max_new_tokens` tokens, and returns `{"response": <decoded text>}`
+  - `chat(messages: list[dict], max_new_tokens: int, do_sample: bool = False) -> str`: Applies the tokenizer's chat template (`enable_thinking=False`), generates greedily by default (deterministic), and returns only the newly generated text
+  - `generate(req: PromptData) -> dict`: Thin wrapper over `chat()` for `/llm/generate`; passes exactly the client's messages (no injected system prompt) and returns `{"response": <decoded text>}`
 
-#### Pydantic Schemas (`src/receipt_extractor/models/llm_message.py`)
-- `ChatMessage`: `{role: str, content: str}`
-- `PromptData`: `{messages: list[ChatMessage], max_new_tokens: int = 1000}` — request body for `/llm/generate`
-- `Word`, `TopicRequest`: additional schemas not yet wired up to any endpoint
+#### ReceiptClassifier (`src/receipt_extractor/services/classifier.py`)
+- **Purpose**: Classifies receipt text into categorized line items; owns the prompt and the output parser. Independent of FastAPI.
+- **Prompt**: `CLASSIFY_PROMPT` in `src/receipt_extractor/llm/prompts/classify_prompt.py` — a LangChain `ChatPromptTemplate` (German system prompt + `{receipt_text}`); the `{{ }}` in the JSON example are template escapes, and `{format_instructions}` is filled from the parser's schema
+- **Key Methods**:
+  - `classify_text(text: str) -> ReceiptClassification`: Renders the prompt, calls `LlmClient.chat()` (`CLASSIFY_MAX_NEW_TOKENS = 4096`), and parses the output (Markdown code fences are tolerated). Raises `ClassificationError` (carrying the raw model output) if the output is not valid
+
+#### Pydantic Schemas
+- `models/llm_message.py`: `ChatMessage` (`{role, content}`), `PromptData` (`{messages: list[ChatMessage], max_new_tokens: int = 8192}`, body of `/llm/generate`); `Word`, `TopicRequest` are not wired up to any endpoint
+- `models/receipt.py`: `Category` (`Süßigkeiten`, `Obst`, `Gemüse`, `Fleisch`, `Brot`, `Anderes`), `ReceiptItem` (`product` is trimmed and non-blank, `price: float`, `category`; `parse_price` accepts `1,99`, `1.99`, `1.234,56`, `1,234.56` with optional surrounding whitespace/`€`/`$`/`£`/`EUR` and rejects anything ambiguous such as `2 x 1,99` or `1e3`, NaN/inf and booleans, which ends up as a 502; categories match case-insensitively, anything unknown falls back to `Anderes`), `ReceiptClassification` (`{items: [...]}`), `ReceiptClassificationResponse` (adds `raw_text`), `ClassifyTextRequest` (`{text}`, must be non-blank)
 
 #### FastAPI App (`src/receipt_extractor/api/app.py`)
-- **Lifespan Management**: `ReceiptExtractor` and `LlmClient` are each instantiated once on startup (loading their models) and shared across requests via `app.state.extractor` / `app.state.llm_client`, then torn down on shutdown
+- **Lifespan Management**: `ReceiptExtractor` and `LlmClient` are each instantiated once on startup (loading their models) and shared across requests via `app.state.extractor` / `app.state.llm_client`; `ReceiptClassifier` is built on top of the shared `LlmClient` (`app.state.classifier`). All are torn down on shutdown
 - **CORS**: Allows all origins, credentials, methods, and headers
-- **Routers**: Includes `process_router` (OCR) and `llm_router` (LLM generation)
+- **Routers**: Includes `process_router` (OCR), `llm_router` (LLM generation) and `classification_router` (classification)
 
 #### Routers (`src/receipt_extractor/api/router/`)
 - `receipt_processing.py` — `process_router`: **POST /extract_text** accepts a multipart image upload, reads the bytes, and delegates to `ReceiptExtractor.get_text()` via `Depends(get_extractor)`
 - `generate.py` — `llm_router` (prefix `/llm`): **POST /llm/generate** accepts a `PromptData` body and delegates to `LlmClient.generate()` via `Depends(get_llm_client)`
+- `classification.py` — `classification_router`:
+  - **POST /classify_text** accepts `{"text": ...}` and returns `{"items": [{product, price, category}, ...]}` (no OCR involved — useful for iterating on the prompt with saved OCR text)
+  - **POST /classify_receipt** accepts a multipart image upload, runs OCR, then the same classification, and returns `{"items": [...], "raw_text": ...}`
+  - Errors: `422` if the text is blank or OCR yields no text (the LLM is not called); `502` if the model output cannot be parsed (the raw output is logged, not returned)
 
 #### Logging (`src/receipt_extractor/logging_config.py`)
 - Simple INFO-level logging with timestamp, level, logger name, and message
@@ -119,6 +130,22 @@ Client Request (image file)
     Extracted Text (string) → API Response
 ```
 
+Classification pipeline:
+```
+Client Request (image file)                     Client Request ({"text": ...})
+        ↓                                                  ↓
+    classification_router                        classification_router
+    (POST /classify_receipt)                     (POST /classify_text)
+        ↓                                                  ↓
+    ReceiptExtractor.get_text()  ── raw_text ──┐           │
+                                               ↓           ↓
+                                      ReceiptClassifier.classify_text()
+                                               ↓
+                                      LlmClient.chat() + PydanticOutputParser
+                                               ↓
+                              {"items": [...]} (+ "raw_text" for images) → API Response
+```
+
 LLM generation pipeline:
 ```
 Client Request (PromptData: messages + max_new_tokens)
@@ -135,12 +162,11 @@ Client Request (PromptData: messages + max_new_tokens)
 ### Configuration
 - Environment variables are defined in `.env` and loaded via `load_dotenv()`:
   - `USERNAME`, `PASSWORD`, `DOWNLOAD_FOALDER` — for the IMAP/email-download integration (see `notebooks/read_mails.ipynb`); not yet wired into the API
-  - `LLM_MODEL_PATH` — filesystem path to the local causal-LM used by `LlmClient`
+  - `LLM_MODEL_PATH` — filesystem path or HuggingFace id of the local causal-LM used by `LlmClient` (default `Qwen/Qwen3.5-9B`). The classification prompt is tuned for Qwen; pointing this at another model (e.g. OpenChat) may degrade output quality
 - Debug configuration available in `.vscode/launch.json` for debugpy
 
 ### Work in progress / stub modules
 These exist on disk but are currently empty or reference modules that don't exist yet — don't assume they're functional without checking first:
-- `src/receipt_extractor/services/classifier.py` — empty
 - `src/receipt_extractor/config.py` — empty
 - `src/receipt_extractor/services/__init__db.py` — imports `receipt_extractor.services.database` (Base/engine), which does not currently exist in the tree
 - `src/receipt_extractor/utils/` — empty directory
@@ -148,7 +174,7 @@ These exist on disk but are currently empty or reference modules that don't exis
 ## Notes for Development
 
 ### GPU Support
-The project is configured for CUDA 12.8. Verify GPU availability with the `ReceiptExtractor.get_gpu_state()` static method (currently prints to stdout). Update PyTorch wheel source in `pyproject.toml` if using different CUDA version. `LlmClient` separately checks `torch.cuda.is_available()` and falls back to CPU.
+The project is configured for CUDA 12.8. Verify GPU availability with the `ReceiptExtractor.get_gpu_state()` static method (currently prints to stdout). Update PyTorch wheel source in `pyproject.toml` if using different CUDA version. `LlmClient` loads with `device_map="auto"`, which spreads layers across available GPUs and offloads to CPU when VRAM runs out. The 9B LLM alone needs about 18 GB in fp16 (9B parameters × 2 bytes), plus GLM-OCR on top; both run together on an RTX 5090 (32 GB). On smaller GPUs expect CPU offload and much slower inference.
 
 ### Model Loading
 Both the GLM-OCR model and the local LLM are loaded once at FastAPI startup (in `lifespan`), so the first request after boot doesn't pay the load cost — but server startup itself will be slow and requires the model weights to be available (HuggingFace cache for GLM-OCR, local path at `LLM_MODEL_PATH` for the LLM).
