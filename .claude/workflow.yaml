@@ -1,0 +1,52 @@
+# .claude/workflow.yaml: the contract between this project and the agent-workflow plugin.
+# The plugin skills read this file. Everything project-specific lives here.
+version: 1
+
+# Command that must pass at the end of apply and fixes (run twice in a row).
+# Runs pytest, the pre-commit hooks on all files, and openspec validate --all --strict.
+check: make check
+
+# Run once in a fresh worktree before tests or dev servers.
+setup: "poetry install"
+
+base_branch: main
+branch_pattern: "issue-<n>-<short-name>"   # a "<user>/" prefix added by Orca is accepted
+
+# Agent and model per phase. `apply_local` is optional (Small track only).
+models:
+  propose: { agent: claude, model: opus }
+  apply:   { agent: claude, model: sonnet }
+  apply_local: { agent: opencode, model: "ollama/qwen3.8:27b" }
+  review:  { agent: claude, model: opus }
+  fix:     { agent: claude, model: sonnet }
+  ship:    { agent: claude, model: sonnet }
+
+tracks:
+  small:
+    max_tasks: 5
+    one_side_only: true          # one area only: OCR, classification, or LLM endpoint
+    forbid: [adr, new_dependency, migration]
+  trivial:
+    max_files: 2
+    allowed_paths: ["docs/", "*.md", ".github/", "openspec/config.yaml"]
+    forbidden_paths: ["src/", "tests/", "pyproject.toml", "poetry.lock"]
+
+# No deploy block: the service has no deployment step yet.
+
+# Ports that only one worktree may use at a time.
+# The GPU is shared too: GLM-OCR plus the 9B LLM need about 20 GB of VRAM, so only
+# one worktree at a time may start the server or run real-model checks.
+shared_ports: [8080]
+
+# Directories used by the architecture rules. docs/adr is created with the first ADR.
+docs:
+  adr_dir: docs/adr
+
+# Extra review checks for this project (added to the generic checklist).
+review:
+  extra_checks:
+    - "Layering: services/ and llm/ stay independent of FastAPI; one router module per feature in api/router/, included in api/app.py; Pydantic schemas in models/."
+    - "Models are loaded once in the FastAPI lifespan and reached through api/deps.py, never per request."
+    - "LlmClient stays task-agnostic: prompts live in llm/prompts/, task logic in services/."
+    - "A change to OCR or LLM output names a real-model check (GPU, sample images in data/) and records its result; mocked tests alone do not prove model behavior."
+    - "New environment variables and endpoints are documented in CLAUDE.md."
