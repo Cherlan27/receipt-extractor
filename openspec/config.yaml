@@ -1,32 +1,63 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Project context, shown to agents when they create artifacts.
+context: |
+  Receipt Extractor: FastAPI service (Python 3.12, Poetry). GLM-OCR extracts text
+  from receipt images; a local causal LLM (default Qwen/Qwen3.5-9B, via
+  transformers) classifies the items. LangChain is used only for the prompt
+  template and output parsing. Tests: pytest with mocked models; real-model
+  checks need the GPU and the sample images in data/. Architecture and
+  conventions: CLAUDE.md. Commits: Conventional Commits.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Style: write simple technical English with short sentences and no filler.
+  Keep artifacts short; every sentence must carry a decision, a requirement, or
+  a fact someone needs later. Agent reports are at most 5 lines.
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+rules:
+  proposal:
+    - 'Reference the GitHub issue this change addresses (e.g. "Closes #1") in the
+      Why or Impact section. Keep the proposal under one page.'
+  design:
+    - "Keep design.md short: one entry per real decision (choice, reason,
+      rejected alternative, 5 lines at most). Do not restate the specs or the
+      issue, and do not describe code that follows from the specs."
+    - Whenever a change involves an architecture decision, create an ADR in
+      docs/adr/ first (Status, Context, Decision, Consequences). Its status must
+      be "Accepted" before the decision is implemented, and the Architecture
+      section of CLAUDE.md must be updated.
+  specs:
+    - Every scenario must be verifiable by an automated test, or name the manual
+      check that verifies it.
+  tasks:
+    - "Implementation tasks follow TDD: failing test first, then the minimal code,
+      then refactor."
+    - Every scenario in the delta specs is covered by a task that names the
+      scenario. Write one task per behavior ("test, then code"), not separate
+      RED and GREEN tasks.
+    - Group tasks so that each numbered group can be committed on its own.
+    - A task that needs the GPU, the real models, a running server, or another
+      external tool says so, so the coordinator can check it before apply starts.
+    - The last group is "Verification" and contains a task that runs the check
+      command (make check), plus any manual checks the specs name.
+
+operations:
+  apply:
+    guidance:
+      - Follow the TDD red-green-refactor cycle for every implementation task.
+      - Tick a task only after the test or command that proves it has passed in
+        this session; never tick a task based on an assumption.
+      - "Commit after each completed task group with a Conventional Commits
+        message (feat:, fix:, test:, docs:, chore:)."
+      - Tests must be deterministic. Never compare two clock reads for equality
+        and never rely on sleeps for ordering; set the time explicitly instead.
+      - Apply is finished only when the check command (make check) passes twice
+        in a row.
+      - Do the real-model (GPU) checks named in the tasks yourself; do not leave
+        them for a later phase. Stop the server afterwards so port 8080 and the
+        GPU are free.
+  archive:
+    guidance:
+      - Archive on the change branch, before the pull request is merged.
+      - 'If the change has a review.md, every finding with "Decision: fix" must
+        have "Status: fixed"; otherwise stop and report the open findings
+        instead of archiving.'
