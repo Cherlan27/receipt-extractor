@@ -6,7 +6,7 @@ Turns receipt content (raw OCR text or a receipt image) into a validated, struct
 ## Requirements
 
 ### Requirement: Classified item structure
-Every classification result SHALL be a JSON object with an `items` array. Each item SHALL contain `product` (non-empty string), `price` (number, in the receipt's currency, using `.` as decimal separator), and `category` (one of `Süßigkeiten`, `Obst`, `Gemüse`, `Fleisch`, `Brot`, `Anderes`). Items SHALL appear in the order they occur on the receipt.
+Every classification result SHALL be a JSON object with an `items` array. Each item SHALL contain `product` (non-empty string), `price` (finite number, in the receipt's currency, using `.` as decimal separator), and `category` (one of `Süßigkeiten`, `Obst`, `Gemüse`, `Fleisch`, `Brot`, `Anderes`). Items SHALL appear in the order they occur on the receipt. Leading and trailing whitespace of `product` SHALL be ignored.
 
 #### Scenario: Items preserve receipt order and structure
 - **WHEN** a receipt containing "Apfel 1.99", "Milch 1.29", "Gummibärchen 0.99" (in that order) is classified
@@ -16,9 +16,37 @@ Every classification result SHALL be a JSON object with an `items` array. Each i
 - **WHEN** the model reports a price using a comma decimal separator (e.g. `"1,99"`)
 - **THEN** the item's `price` in the response is the number `1.99`
 
+#### Scenario: Thousands separators are normalized
+- **WHEN** the model reports a price with a thousands separator and a decimal part (e.g. `"1.234,56"` or `"1,234.56"`)
+- **THEN** the item's `price` in the response is the number `1234.56`
+
+#### Scenario: Currency symbols and whitespace around a price are ignored
+- **WHEN** the model reports a price such as `" 1,99 € "`, `"€1,99"` or `"1,99 EUR"`
+- **THEN** the item's `price` in the response is the number `1.99`
+
+#### Scenario: Ambiguous price text is rejected instead of guessed
+- **WHEN** the model reports a price that contains more than one number or other text, such as `"2 x 1,99"`, `"19,99 B 2"`, `"12 345"` or `"1e3"`
+- **THEN** the system does not return a price derived from it (such as `21.99`) and responds as for invalid model output (HTTP 502)
+
+#### Scenario: Non-finite or non-numeric price is rejected
+- **WHEN** the model reports a price of `NaN`, `Infinity` or a boolean
+- **THEN** the system responds as for invalid model output (HTTP 502) and never returns `null` for `price`
+
+#### Scenario: Negative prices are allowed
+- **WHEN** the model reports a negative price (for example a discount or a deposit refund)
+- **THEN** the item is returned with that negative number as `price`
+
+#### Scenario: Blank product name is rejected
+- **WHEN** the model returns an item whose `product` is empty or only whitespace
+- **THEN** the system responds as for invalid model output (HTTP 502)
+
 #### Scenario: Unknown category falls back to Anderes
 - **WHEN** the model assigns a category that is not in the allowed set (e.g. `"Milchprodukte"`)
 - **THEN** the item is returned with `category` set to `Anderes` instead of failing the request
+
+#### Scenario: Category matching ignores case, surrounding whitespace and a trailing period
+- **WHEN** the model assigns a category such as `"obst"`, `"OBST"`, `" Obst "` or `"Obst."`
+- **THEN** the item is returned with the matching category (`Obst`), not `Anderes`
 
 #### Scenario: Receipt without recognizable products
 - **WHEN** the input contains no recognizable purchased products and the model returns an empty list

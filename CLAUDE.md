@@ -79,8 +79,8 @@ Currently, there are minimal tests in the `tests/` directory. No test runner is 
 - **Model**: `zai-org/GLM-OCR` (image-to-text model from HuggingFace), loaded with `device_map="auto"`
 - **Key Methods**:
   - `__init__()`: Loads the model and processor on initialization
-  - `get_text(image: bytes) -> str`: Takes raw image bytes, builds a chat-template prompt (`{"type": "image", ...}` + OCR instruction), generates up to 8192 tokens, and returns the decoded text with special tokens skipped (GLM-OCR ends its answer with the end-of-turn token `<|user|>`, which must not leak into the OCR text)
-    - Returns `""` on `UnidentifiedImageError`/unexpected errors instead of raising
+  - `get_text(image: bytes) -> str`: Takes raw image bytes, builds a chat-template prompt (`{"type": "image", ...}` + OCR instruction), generates up to 8192 tokens, and returns the decoded text with special tokens removed (GLM-OCR ends its answer with the end-of-turn token `<|user|>`, which must not leak into the OCR text). `skip_special_tokens=True` is not enough on its own: `<|begin_of_box|>`/`<|end_of_box|>` are listed as special but still decoded, so `strip_special_tokens()` removes every token in `tokenizer.all_special_tokens` afterwards
+    - Returns `""` on `UnidentifiedImageError`/unexpected errors instead of raising; the image is fully loaded (`img.load()`) inside the `try`, so truncated/corrupt files are rejected up front
 
 #### LlmClient (`src/receipt_extractor/llm/client.py`)
 - **Purpose**: Task-agnostic wrapper around a local causal-LM, independent of the OCR pipeline. It knows nothing about receipts or prompts.
@@ -97,7 +97,7 @@ Currently, there are minimal tests in the `tests/` directory. No test runner is 
 
 #### Pydantic Schemas
 - `models/llm_message.py`: `ChatMessage` (`{role, content}`), `PromptData` (`{messages: list[ChatMessage], max_new_tokens: int = 8192}`, body of `/llm/generate`); `Word`, `TopicRequest` are not wired up to any endpoint
-- `models/receipt.py`: `Category` (`Süßigkeiten`, `Obst`, `Gemüse`, `Fleisch`, `Brot`, `Anderes`), `ReceiptItem` (`product`, `price: float`, `category`; comma prices are normalized, unknown categories fall back to `Anderes`), `ReceiptClassification` (`{items: [...]}`), `ReceiptClassificationResponse` (adds `raw_text`), `ClassifyTextRequest` (`{text}`, must be non-blank)
+- `models/receipt.py`: `Category` (`Süßigkeiten`, `Obst`, `Gemüse`, `Fleisch`, `Brot`, `Anderes`), `ReceiptItem` (`product` is trimmed and non-blank, `price: float`, `category`; `parse_price` accepts `1,99`, `1.99`, `1.234,56`, `1,234.56` with optional surrounding whitespace/`€`/`$`/`£`/`EUR` and rejects anything ambiguous such as `2 x 1,99` or `1e3`, NaN/inf and booleans, which ends up as a 502; categories match case-insensitively, anything unknown falls back to `Anderes`), `ReceiptClassification` (`{items: [...]}`), `ReceiptClassificationResponse` (adds `raw_text`), `ClassifyTextRequest` (`{text}`, must be non-blank)
 
 #### FastAPI App (`src/receipt_extractor/api/app.py`)
 - **Lifespan Management**: `ReceiptExtractor` and `LlmClient` are each instantiated once on startup (loading their models) and shared across requests via `app.state.extractor` / `app.state.llm_client`; `ReceiptClassifier` is built on top of the shared `LlmClient` (`app.state.classifier`). All are torn down on shutdown
