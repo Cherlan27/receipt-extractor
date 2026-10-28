@@ -50,6 +50,12 @@ operations:
         message (feat:, fix:, test:, docs:, chore:)."
       - Tests must be deterministic. Never compare two clock reads for equality
         and never rely on sleeps for ordering; set the time explicitly instead.
+      - Never delete, skip, or loosen a test, change an expected value to match
+        the code, special-case test inputs, or weaken the check command to make
+        a check pass. If a test looks wrong, stop and report it instead.
+      - If you are blocked (a tool is missing, the environment is down, a task
+        is unclear or impossible), stop and report the blocker. Do not work
+        around it.
       - Apply is finished only when the check command (make check) passes twice
         in a row.
       - Do the real-model (GPU) checks named in the tasks yourself; do not leave
