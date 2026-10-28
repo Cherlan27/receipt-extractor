@@ -194,9 +194,10 @@ Full workflow: `CONTRIBUTING.md`. Project contract: `.claude/workflow.yaml`. Rul
 - Each phase is its own agent session with the model from `.claude/workflow.yaml`. A coordinator (`/agent-workflow:orchestrate-issue`) picks a track (Full, Small, Trivial; see `CONTRIBUTING.md`) and stops for a human after propose, after review, and before merge/deploy. Do only your phase.
 - When the cloud models (claude/codex) are at their token limit, run the same flow on the local model: `/agent-workflow:orchestrate-issue <issue> --local`. Every phase (including the review) uses `local.model`; the review round is marked in `review.md` as a local-model review and you decide each finding at Gate 2. See `CONTRIBUTING.md`.
 - A phase is done when the `check` command passes (twice in a row after apply and fixes). Tick a task only after its test or command passed in your session. Tests must be deterministic (no equality of two clock reads).
+- Never delete, skip, or loosen a test, or weaken the check, to make it pass. If you are blocked or a test looks wrong, stop and report it; do not work around it.
 - Review (`/agent-workflow:review-change`) writes findings to `openspec/changes/<change>/review.md` and changes no code; fixes implement only findings with `Decision: fix`.
 - Run `/opsx:archive` on the branch before merging.
-- A fresh worktree needs the `setup` command from `.claude/workflow.yaml` (here: `poetry install`).
+- A fresh worktree needs the `setup` command from `.claude/workflow.yaml` (here: `poetry install && trail build`).
 - Port 8080 and the GPU are shared — only one worktree at a time may run the server or real-model checks.
 - Never edit generated OpenSpec skills/commands in `.claude/` or `.opencode/`; put project rules in `openspec/config.yaml`.
 - Style: simple technical English, short sentences, no filler. Reports at most 5 lines.
