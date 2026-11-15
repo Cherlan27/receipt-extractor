@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated
@@ -77,8 +78,48 @@ Money = Annotated[
 ]
 
 
+# Accepted purchase dates, matched against the whole (trimmed) string, with an
+# optional time: ISO "2026-02-25[T| ]19:33[:55]" and German "25.02.26[ 19:33]".
+_TIME = r"(?P<h>\d{2}):(?P<min>\d{2})(?::(?P<s>\d{2}))?"
+_ISO_DATE = re.compile(rf"(?P<y>\d{{4}})-(?P<m>\d{{2}})-(?P<d>\d{{2}})(?:[T ]{_TIME})?")
+_GERMAN_DATE = re.compile(
+    rf"(?P<d>\d{{2}})\.(?P<m>\d{{2}})\.(?P<y>\d{{4}}|\d{{2}})(?: {_TIME})?"
+)
+
+
+def parse_purchased_at(raw: str) -> date | datetime:
+    """
+    Parse a purchase date as reported by the model.
+
+    Returns a date, or a naive datetime when the string carries a time.
+
+    Raises:
+        ValueError: If the string is not a recognized format or not a real date
+    """
+    text = raw.strip()
+    match = _ISO_DATE.fullmatch(text) or _GERMAN_DATE.fullmatch(text)
+    if match is None:
+        raise ValueError(f"Unrecognized date format: {raw!r}")
+
+    year = int(match["y"])
+    if len(match["y"]) == 2:
+        year += 2000
+    day = date(year, int(match["m"]), int(match["d"]))
+    if match["h"] is None:
+        return day
+    return datetime(
+        day.year,
+        day.month,
+        day.day,
+        int(match["h"]),
+        int(match["min"]),
+        int(match["s"] or 0),
+    )
+
+
 class ReceiptItem(BaseModel):
     product: str = Field(min_length=1)
+    quantity: int = Field(default=1, ge=1)
     price: Money
     category: Category
 
@@ -92,6 +133,21 @@ class ReceiptItem(BaseModel):
     def normalize_price(cls, value):
         return normalize_money(value)
 
+    @field_validator("quantity", mode="before")
+    @classmethod
+    def normalize_quantity(cls, value):
+        if value is None:
+            return 1
+        if isinstance(value, bool):
+            raise ValueError("quantity must be an integer")
+        if isinstance(value, str):
+            if not re.fullmatch(r"\d+", value.strip()):
+                raise ValueError(f"quantity must be an integer: {value!r}")
+            return int(value)
+        if isinstance(value, float):
+            raise ValueError("quantity must be an integer")
+        return value
+
     @field_validator("category", mode="before")
     @classmethod
     def fallback_unknown_category(cls, value):
@@ -104,7 +160,35 @@ class ReceiptItem(BaseModel):
 
 
 class ReceiptClassification(BaseModel):
+    purchased_at: date | datetime | None = None
+    store: str | None = None
+    total: Money | None = None
     items: list[ReceiptItem]
+
+    @field_validator("purchased_at", mode="before")
+    @classmethod
+    def parse_date(cls, value):
+        if isinstance(value, str):
+            return parse_purchased_at(value) if value.strip() else None
+        if value is None or isinstance(value, date):
+            return value
+        raise ValueError("purchased_at must be a date string")
+
+    @field_validator("store", mode="before")
+    @classmethod
+    def strip_store(cls, value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("store must be text")
+        return value.strip() or None
+
+    @field_validator("total", mode="before")
+    @classmethod
+    def normalize_total(cls, value):
+        if isinstance(value, str) and not value.strip():
+            return None
+        return normalize_money(value)
 
 
 class ReceiptClassificationResponse(ReceiptClassification):

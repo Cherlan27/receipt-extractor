@@ -7,17 +7,17 @@ Every task: failing test first, then the minimal code, then refactor. Scenario n
 
 ## 2. Item quantity
 
-- [ ] 2.1 "Missing quantity defaults to 1" and "Multi-unit line keeps the line total as price": missing or `null` → `1`; `2` and `"2"` → `2`; `price` unchanged. Then add `quantity` to `ReceiptItem`
-- [ ] 2.2 "Invalid quantity is rejected": `0`, `-1`, `1.5`, `"2x"`, `True` raise a validation error; through the classifier they raise `ClassificationError`. Then add the validator
-- [ ] 2.3 "Items preserve receipt order and structure": serialized items contain `product`, `quantity`, `price`, `category`
+- [x] 2.1 "Missing quantity defaults to 1" and "Multi-unit line keeps the line total as price": missing or `null` → `1`; `2` and `"2"` → `2`; `price` unchanged. Then add `quantity` to `ReceiptItem`
+- [x] 2.2 "Invalid quantity is rejected": `0`, `-1`, `1.5`, `"2x"`, `True` raise a validation error; through the classifier they raise `ClassificationError`. Then add the validator
+- [x] 2.3 "Items preserve receipt order and structure": serialized items contain `product`, `quantity`, `price`, `category`
 
 ## 3. Receipt metadata
 
-- [ ] 3.1 "Metadata is returned", "Date with time is kept", "German date formats are accepted": parametrized tests for a `purchased_at` parser (ISO date, ISO with `T`/space and `HH:MM[:SS]`, `DD.MM.YYYY`, `DD.MM.YY`, optional time). Then add the parser and `purchased_at: date | datetime | None` to `ReceiptClassification` (design 4)
-- [ ] 3.2 "Unparseable date is rejected": `"25/02/2026"`, `"gestern"`, `"2026-02-30"`, `"19:33"`, `20260225`, `True` are rejected
-- [ ] 3.3 `store`: trimmed; blank → `null`; number/boolean/list/object rejected ("Non-text store is rejected")
-- [ ] 3.4 `total`: same rules as `price`, `Decimal`, serialized as number; "Unparseable total is rejected" (`"2 x 1,99"`, `"NaN"`, `True`)
-- [ ] 3.5 "Missing metadata yields null" and "Receipt without recognizable products": omitted, `null` and `""` give `null`; all three keys are always present in the JSON output
+- [x] 3.1 "Metadata is returned", "Date with time is kept", "German date formats are accepted": parametrized tests for a `purchased_at` parser (ISO date, ISO with `T`/space and `HH:MM[:SS]`, `DD.MM.YYYY`, `DD.MM.YY`, optional time). Then add the parser and `purchased_at: date | datetime | None` to `ReceiptClassification` (design 4)
+- [x] 3.2 "Unparseable date is rejected": `"25/02/2026"`, `"gestern"`, `"2026-02-30"`, `"19:33"`, `20260225`, `True` are rejected
+- [x] 3.3 `store`: trimmed; blank → `null`; number/boolean/list/object rejected ("Non-text store is rejected")
+- [x] 3.4 `total`: same rules as `price`, `Decimal`, serialized as number; "Unparseable total is rejected" (`"2 x 1,99"`, `"NaN"`, `True`)
+- [x] 3.5 "Missing metadata yields null" and "Receipt without recognizable products": omitted, `null` and `""` give `null`; all three keys are always present in the JSON output
 
 ## 4. Classifier and API
 

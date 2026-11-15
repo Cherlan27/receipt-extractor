@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -117,6 +118,30 @@ class TestReceiptItemPrice:
         assert item.price == Decimal("-0.25")
 
 
+class TestReceiptItemQuantity:
+    def test_defaults_to_one_when_missing(self):
+        item = ReceiptItem(product="X", price=1, category="Obst")
+
+        assert item.quantity == 1
+
+    def test_null_quantity_defaults_to_one(self):
+        item = ReceiptItem(product="X", quantity=None, price=1, category="Obst")
+
+        assert item.quantity == 1
+
+    @pytest.mark.parametrize("raw", [2, "2", " 2 "])
+    def test_accepts_integers_and_digit_strings(self, raw):
+        item = ReceiptItem(product="X", quantity=raw, price="2,78", category="Obst")
+
+        assert item.quantity == 2
+        assert item.price == Decimal("2.78")
+
+    @pytest.mark.parametrize("raw", [0, -1, 1.5, "2x", "1.5", "0", "-1", "", True])
+    def test_rejects_invalid_quantity(self, raw):
+        with pytest.raises(ValidationError):
+            ReceiptItem(product="X", quantity=raw, price=1, category="Obst")
+
+
 class TestReceiptItemCategory:
     @pytest.mark.parametrize(
         "raw, expected",
@@ -192,13 +217,179 @@ class TestReceiptClassification:
             {"items": [{"product": "Apfel", "price": "1,99", "category": "Obst"}]}
         )
 
-        assert result.model_dump(mode="json") == {
-            "items": [{"product": "Apfel", "price": 1.99, "category": "Obst"}]
-        }
+        assert result.model_dump(mode="json")["items"] == [
+            {"product": "Apfel", "quantity": 1, "price": 1.99, "category": "Obst"}
+        ]
         assert isinstance(result.model_dump(mode="json")["items"][0]["price"], float)
 
     def test_allows_empty_items(self):
         assert ReceiptClassification(items=[]).items == []
+
+    def test_serialized_items_contain_all_fields_in_order(self):
+        result = ReceiptClassification.model_validate(
+            {
+                "items": [
+                    {"product": "Apfel", "price": 1.99, "category": "Obst"},
+                    {"product": "Milch", "price": 1.29, "category": "Anderes"},
+                    {"product": "Gummi", "price": 0.99, "category": "Süßigkeiten"},
+                ]
+            }
+        )
+
+        items = result.model_dump(mode="json")["items"]
+        assert [i["product"] for i in items] == ["Apfel", "Milch", "Gummi"]
+        for item in items:
+            assert list(item) == ["product", "quantity", "price", "category"]
+            assert isinstance(item["price"], float)
+
+
+class TestReceiptMetadata:
+    def test_metadata_is_parsed(self):
+        result = ReceiptClassification.model_validate(
+            {
+                "purchased_at": "2026-02-25",
+                "store": " ALDI ",
+                "total": "21,89 €",
+                "items": [],
+            }
+        )
+
+        assert result.purchased_at == date(2026, 2, 25)
+        assert result.store == "ALDI"
+        assert result.total == Decimal("21.89")
+        assert result.model_dump(mode="json") == {
+            "purchased_at": "2026-02-25",
+            "store": "ALDI",
+            "total": 21.89,
+            "items": [],
+        }
+
+    @pytest.mark.parametrize(
+        ("raw", "parsed", "serialized"),
+        [
+            ("2026-02-25", date(2026, 2, 25), "2026-02-25"),
+            ("25.02.2026", date(2026, 2, 25), "2026-02-25"),
+            ("25.02.26", date(2026, 2, 25), "2026-02-25"),
+            (" 2026-02-25 ", date(2026, 2, 25), "2026-02-25"),
+            (
+                "2026-02-25T19:33:55",
+                datetime(2026, 2, 25, 19, 33, 55),
+                "2026-02-25T19:33:55",
+            ),
+            (
+                "2026-02-25 19:33",
+                datetime(2026, 2, 25, 19, 33),
+                "2026-02-25T19:33:00",
+            ),
+            (
+                "2026-02-25T19:33",
+                datetime(2026, 2, 25, 19, 33),
+                "2026-02-25T19:33:00",
+            ),
+            (
+                "25.02.26 19:33",
+                datetime(2026, 2, 25, 19, 33),
+                "2026-02-25T19:33:00",
+            ),
+            (
+                "25.02.2026 19:33:55",
+                datetime(2026, 2, 25, 19, 33, 55),
+                "2026-02-25T19:33:55",
+            ),
+        ],
+    )
+    def test_parses_supported_date_formats(self, raw, parsed, serialized):
+        result = ReceiptClassification(purchased_at=raw, items=[])
+
+        assert result.purchased_at == parsed
+        assert type(result.purchased_at) is type(parsed)
+        assert result.model_dump(mode="json")["purchased_at"] == serialized
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "25/02/2026",
+            "gestern",
+            "2026-02-30",
+            "30.02.2026",
+            "19:33",
+            "2026-02-25 25:00",
+            "2026-02-25T19:33:55Z",
+            "25.2.26",
+            20260225,
+            1.5,
+            True,
+            ["2026-02-25"],
+        ],
+    )
+    def test_rejects_unparseable_date(self, raw):
+        with pytest.raises(ValidationError):
+            ReceiptClassification(purchased_at=raw, items=[])
+
+    def test_store_is_trimmed(self):
+        result = ReceiptClassification(store="  ALDI SÜD\n", items=[])
+
+        assert result.store == "ALDI SÜD"
+
+    @pytest.mark.parametrize("raw", [123, 1.5, True, ["ALDI"], {"name": "ALDI"}])
+    def test_rejects_non_text_store(self, raw):
+        with pytest.raises(ValidationError):
+            ReceiptClassification(store=raw, items=[])
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("21,89", Decimal("21.89")),
+            ("1.234,56 EUR", Decimal("1234.56")),
+            (21.89, Decimal("21.89")),
+            (0.3, Decimal("0.3")),
+        ],
+    )
+    def test_total_uses_price_rules(self, raw, expected):
+        result = ReceiptClassification(total=raw, items=[])
+
+        assert result.total == expected
+        assert isinstance(result.model_dump(mode="json")["total"], float)
+
+    @pytest.mark.parametrize(
+        "raw", ["2 x 1,99", "NaN", "nan", "inf", True, "1e3", "gratis"]
+    )
+    def test_rejects_unparseable_total(self, raw):
+        with pytest.raises(ValidationError):
+            ReceiptClassification(total=raw, items=[])
+
+    @pytest.mark.parametrize("raw", [float("nan"), float("inf")])
+    def test_rejects_non_finite_total(self, raw):
+        with pytest.raises(ValidationError):
+            ReceiptClassification(total=raw, items=[])
+
+    def test_nan_total_from_model_json_is_rejected(self):
+        with pytest.raises(ValidationError):
+            ReceiptClassification.model_validate_json('{"total": NaN, "items": []}')
+
+    @pytest.mark.parametrize("missing", ["omitted", None, "", "   "])
+    def test_missing_metadata_yields_null(self, missing):
+        data = {"items": []}
+        if missing != "omitted":
+            data.update(purchased_at=missing, store=missing, total=missing)
+
+        result = ReceiptClassification.model_validate(data)
+
+        assert result.model_dump(mode="json") == {
+            "purchased_at": None,
+            "store": None,
+            "total": None,
+            "items": [],
+        }
+
+    def test_metadata_is_parsed_from_model_json(self):
+        result = ReceiptClassification.model_validate_json(
+            '{"purchased_at": "2026-02-25T19:33:55", "store": "ALDI", '
+            '"total": 21.89, "items": []}'
+        )
+
+        assert result.purchased_at == datetime(2026, 2, 25, 19, 33, 55)
+        assert result.total == Decimal("21.89")
 
 
 class TestClassifyTextRequest:
