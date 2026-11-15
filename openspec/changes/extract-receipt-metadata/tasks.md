@@ -21,14 +21,14 @@ Every task: failing test first, then the minimal code, then refactor. Scenario n
 
 ## 4. Classifier and API
 
-- [ ] 4.1 "Sum of items differs from total" and "Sum of items matches total" (`tests/receipt_extractor/services/test_classifier.py`, `caplog`): warning with `3.28` and `21.89` on mismatch, none on match, none when `total` is `null`; result unchanged. Then add the check to `ReceiptClassifier.classify_text` (design 6)
-- [ ] 4.2 Classifier: invalid metadata or quantity in model output raises `ClassificationError` (HTTP 502 path), valid metadata is parsed
-- [ ] 4.3 "Successful text classification" (`tests/receipt_extractor/api/test_classification.py`, mocked classifier): `/classify_text` returns `purchased_at`, `store`, `total`, `items[].quantity` with number amounts and no `warnings` key
-- [ ] 4.4 "Successful image classification": `/classify_receipt` returns the metadata and `raw_text`. Then pass the metadata into `ReceiptClassificationResponse` in `api/router/classification.py`
+- [x] 4.1 "Sum of items differs from total" and "Sum of items matches total" (`tests/receipt_extractor/services/test_classifier.py`, `caplog`): warning with `3.28` and `21.89` on mismatch, none on match, none when `total` is `null`; result unchanged. Then add the check to `ReceiptClassifier.classify_text` (design 6)
+- [x] 4.2 Classifier: invalid metadata or quantity in model output raises `ClassificationError` (HTTP 502 path), valid metadata is parsed
+- [x] 4.3 "Successful text classification" (`tests/receipt_extractor/api/test_classification.py`, mocked classifier): `/classify_text` returns `purchased_at`, `store`, `total`, `items[].quantity` with number amounts and no `warnings` key
+- [x] 4.4 "Successful image classification": `/classify_receipt` returns the metadata and `raw_text`. Then pass the metadata into `ReceiptClassificationResponse` in `api/router/classification.py`
 
 ## 5. Prompt
 
-- [ ] 5.1 Prompt test (`TestPrompting`): the rendered system prompt asks for `purchased_at` (ISO), `store`, `total`, `quantity`; says missing values are `null`, `price` is the line total and the digit after `€` is the VAT class; its JSON example parses into a valid `ReceiptClassification`. Then update `CLASSIFY_PROMPT` minimally (design 7); category list and deposit handling unchanged (#5)
+- [x] 5.1 Prompt test (`TestPrompting`): the rendered system prompt asks for `purchased_at` (ISO), `store`, `total`, `quantity`; says missing values are `null`, `price` is the line total and the digit after `€` is the VAT class; its JSON example parses into a valid `ReceiptClassification`. Then update `CLASSIFY_PROMPT` minimally (design 7); category list and deposit handling unchanged (#5)
 
 ## 6. Docs
 
