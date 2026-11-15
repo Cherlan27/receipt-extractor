@@ -93,11 +93,11 @@ Currently, there are minimal tests in the `tests/` directory. No test runner is 
 - **Purpose**: Classifies receipt text into categorized line items; owns the prompt and the output parser. Independent of FastAPI.
 - **Prompt**: `CLASSIFY_PROMPT` in `src/receipt_extractor/llm/prompts/classify_prompt.py` — a LangChain `ChatPromptTemplate` (German system prompt + `{receipt_text}`); the `{{ }}` in the JSON example are template escapes, and `{format_instructions}` is filled from the parser's schema
 - **Key Methods**:
-  - `classify_text(text: str) -> ReceiptClassification`: Renders the prompt, calls `LlmClient.chat()` (`CLASSIFY_MAX_NEW_TOKENS = 4096`), and parses the output (Markdown code fences are tolerated). Raises `ClassificationError` (carrying the raw model output) if the output is not valid
+  - `classify_text(text: str) -> ReceiptClassification`: Renders the prompt, calls `LlmClient.chat()` (`CLASSIFY_MAX_NEW_TOKENS = 4096`), and parses the output (Markdown code fences are tolerated). Logs a warning (no response field) when `total` is set and differs from the sum of the item prices. Raises `ClassificationError` (carrying the raw model output) if the output is not valid
 
 #### Pydantic Schemas
 - `models/llm_message.py`: `ChatMessage` (`{role, content}`), `PromptData` (`{messages: list[ChatMessage], max_new_tokens: int = 8192}`, body of `/llm/generate`); `Word`, `TopicRequest` are not wired up to any endpoint
-- `models/receipt.py`: `Category` (`Süßigkeiten`, `Obst`, `Gemüse`, `Fleisch`, `Brot`, `Anderes`), `ReceiptItem` (`product` is trimmed and non-blank, `price: float`, `category`; `parse_price` accepts `1,99`, `1.99`, `1.234,56`, `1,234.56` with optional surrounding whitespace/`€`/`$`/`£`/`EUR` and rejects anything ambiguous such as `2 x 1,99` or `1e3`, NaN/inf and booleans, which ends up as a 502; categories match case-insensitively, anything unknown falls back to `Anderes`), `ReceiptClassification` (`{items: [...]}`), `ReceiptClassificationResponse` (adds `raw_text`), `ClassifyTextRequest` (`{text}`, must be non-blank)
+- `models/receipt.py`: `Category` (`Süßigkeiten`, `Obst`, `Gemüse`, `Fleisch`, `Brot`, `Anderes`), `ReceiptItem` (`product` is trimmed and non-blank, `quantity` positive integer, default `1` (`null`/missing → `1`; `0`, negatives, fractions, booleans rejected), `price` the **line total** (quantity × unit price) as an exact `Decimal` that is serialized as a JSON number, `category`; `parse_price` returns a `Decimal` and accepts `1,99`, `1.99`, `1.234,56`, `1,234.56` with optional surrounding whitespace/`€`/`$`/`£`/`EUR` and rejects anything ambiguous such as `2 x 1,99` or `1e3`, NaN/inf and booleans, which ends up as a 502; categories match case-insensitively, anything unknown falls back to `Anderes`), `ReceiptClassification` (`{purchased_at, store, total, items: [...]}`; the three metadata keys are always present and `null` when missing, `null` or blank in the model output; `purchased_at` is a `date`, or a naive `datetime` when a time is printed, parsed from ISO `YYYY-MM-DD[T| ]HH:MM[:SS]` or German `DD.MM.YY[YY][ HH:MM[:SS]]`; `store` is trimmed text; `total` follows the `price` rules; unparseable values end up as a 502), `ReceiptClassificationResponse` (adds `raw_text`), `ClassifyTextRequest` (`{text}`, must be non-blank)
 
 #### FastAPI App (`src/receipt_extractor/api/app.py`)
 - **Lifespan Management**: `ReceiptExtractor` and `LlmClient` are each instantiated once on startup (loading their models) and shared across requests via `app.state.extractor` / `app.state.llm_client`; `ReceiptClassifier` is built on top of the shared `LlmClient` (`app.state.classifier`). All are torn down on shutdown
@@ -108,8 +108,8 @@ Currently, there are minimal tests in the `tests/` directory. No test runner is 
 - `receipt_processing.py` — `process_router`: **POST /extract_text** accepts a multipart image upload, reads the bytes, and delegates to `ReceiptExtractor.get_text()` via `Depends(get_extractor)`
 - `generate.py` — `llm_router` (prefix `/llm`): **POST /llm/generate** accepts a `PromptData` body and delegates to `LlmClient.generate()` via `Depends(get_llm_client)`
 - `classification.py` — `classification_router`:
-  - **POST /classify_text** accepts `{"text": ...}` and returns `{"items": [{product, price, category}, ...]}` (no OCR involved — useful for iterating on the prompt with saved OCR text)
-  - **POST /classify_receipt** accepts a multipart image upload, runs OCR, then the same classification, and returns `{"items": [...], "raw_text": ...}`
+  - **POST /classify_text** accepts `{"text": ...}` and returns `{"purchased_at", "store", "total", "items": [{product, quantity, price, category}, ...]}` (no OCR involved — useful for iterating on the prompt with saved OCR text)
+  - **POST /classify_receipt** accepts a multipart image upload, runs OCR, then the same classification, and returns `{"purchased_at", "store", "total", "items": [...], "raw_text": ...}`
   - Errors: `422` if the text is blank or OCR yields no text (the LLM is not called); `502` if the model output cannot be parsed (the raw output is logged, not returned)
 
 #### Logging (`src/receipt_extractor/logging_config.py`)
@@ -143,7 +143,7 @@ Client Request (image file)                     Client Request ({"text": ...})
                                                ↓
                                       LlmClient.chat() + PydanticOutputParser
                                                ↓
-                              {"items": [...]} (+ "raw_text" for images) → API Response
+                              {"purchased_at", "store", "total", "items": [...]} (+ "raw_text" for images) → API Response
 ```
 
 LLM generation pipeline:

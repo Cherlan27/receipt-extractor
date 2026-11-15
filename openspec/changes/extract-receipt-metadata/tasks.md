@@ -32,10 +32,10 @@ Every task: failing test first, then the minimal code, then refactor. Scenario n
 
 ## 6. Docs
 
-- [ ] 6.1 Update `CLAUDE.md`: `models/receipt.py` schemas (`quantity`, `price` as line-total `Decimal`, `purchased_at`/`store`/`total`, parsing rules), `/classify_text` and `/classify_receipt` response shapes, the mismatch warning log
+- [x] 6.1 Update `CLAUDE.md`: `models/receipt.py` schemas (`quantity`, `price` as line-total `Decimal`, `purchased_at`/`store`/`total`, parsing rules), `/classify_text` and `/classify_receipt` response shapes, the mismatch warning log
 
 ## 7. Verification
 
-- [ ] 7.1 Run `make check` twice in a row; both pass
+- [x] 7.1 Run `make check` twice in a row; both pass
 - [ ] 7.2 Real-model check (needs GPU, real models, server on port 8080; only one worktree at a time): start the server, `POST /classify_receipt` with the main checkout's `data/aldi_quittung.jpeg` (`data/` is gitignored, not in this worktree). Verifies "Metadata of the sample ALDI receipt is extracted": `purchased_at` `2026-02-25` (time optional), `store` contains `ALDI`, `total` `21.89`, `NITT KÄSEBRÖTCHEN` quantity `2` price `2.78`, `CC ZERO/LIGHT/KOFF.FRE` quantity `1`. Record the actual values and any item/category differences from the previous run here below this task
 - [ ] 7.3 Stop the server; port 8080 and the GPU are free
