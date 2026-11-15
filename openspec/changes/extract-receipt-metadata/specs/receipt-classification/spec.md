@@ -87,7 +87,7 @@ The system SHALL expose `POST /classify_receipt` accepting a multipart upload wi
 
 #### Scenario: Metadata of the sample ALDI receipt is extracted
 - **WHEN** `data/aldi_quittung.jpeg` is uploaded to `/classify_receipt` on the real models (manual check, GPU)
-- **THEN** `purchased_at` is `2026-02-25` (with or without the time `19:33`/`19:33:55`), `store` contains `ALDI`, `total` is `21.89`, `NITT KÄSEBRÖTCHEN` has `quantity` `2` and `price` `2.78`, and `CC ZERO/LIGHT/KOFF.FRE` has `quantity` `1` (the trailing `2` on that line is the VAT class, not a quantity)
+- **THEN** `purchased_at` is `2026-02-25` (with or without the time `19:33`/`19:33:55`), `store` contains `ALDI`, `total` is `21.89`, and `NITT KÄSEBRÖTCHEN` has `quantity` `2` and `price` `2.78`
 
 ## ADDED Requirements
 

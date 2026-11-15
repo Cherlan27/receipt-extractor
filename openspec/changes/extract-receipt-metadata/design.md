@@ -52,4 +52,5 @@ No new component, dependency or layering change; only the schema and prompt grow
 
 - [The model returns `25/02/2026` or another rejected date format] → whole request is 502. Mitigation: prompt asks for ISO; the real-model check covers the sample receipt. Revisit decision 5 if real receipts hit it.
 - [`float` conversion in JSON output loses precision for very large amounts] → irrelevant for receipt amounts; the exact `Decimal` stays in the Python model.
+- [The model reads the VAT-class digit after the amount as the quantity, e.g. `CC ZERO/LIGHT/KOFF.FRE` `1,59 € 2` gets `quantity` `2`] → known limit of the 9B model, not fixed by prompt wording (5 variants tried). Follow-up: #18.
 - [Prompt change shifts item categories on the sample receipt] → real-model check compares items with the previous run; differences are recorded, not assumed harmless.
