@@ -38,4 +38,7 @@ Every task: failing test first, then the minimal code, then refactor. Scenario n
 
 - [x] 7.1 Run `make check` twice in a row; both pass
 - [ ] 7.2 Real-model check (needs GPU, real models, server on port 8080; only one worktree at a time): start the server, `POST /classify_receipt` with the main checkout's `data/aldi_quittung.jpeg` (`data/` is gitignored, not in this worktree). Verifies "Metadata of the sample ALDI receipt is extracted": `purchased_at` `2026-02-25` (time optional), `store` contains `ALDI`, `total` `21.89`, `NITT KÄSEBRÖTCHEN` quantity `2` price `2.78`, `CC ZERO/LIGHT/KOFF.FRE` quantity `1`. Record the actual values and any item/category differences from the previous run here below this task
-- [ ] 7.3 Stop the server; port 8080 and the GPU are free
+  Result 2026-11-15 (real models, `data/aldi_quittung.jpeg`, final prompt): HTTP 200, `purchased_at` `2026-02-25T19:33:00`, `store` `ALDI`, `total` `21.89`, 11 items, sum `21.64` (mismatch warning logged; the `PFANDWERT` lines are missing, see #5).
+  `NITT KÄSEBRÖTCHEN`: quantity `2`, price `2.78` (ok). `CC ZERO/LIGHT/KOFF.FRE`: quantity `2`, price `1.59` (**fails**, expected quantity `1`: the model reads the VAT class `€ 2` as a quantity).
+  Tried 5 prompt wordings (explicit rules, worked examples, a VAT-2 drink in the example); the first run had `NITT` price `1.39`, now fixed. `CC` stays at `2` in every run. Categories are the same in all runs (Gemüse: Kartoffeln, Rahmspinat, Tomatenmark; Süßigkeiten: 2 chocolate items; Brot: Käsebrötchen; rest Anderes). No earlier run is recorded, so there is no baseline to diff.
+- [x] 7.3 Stop the server; port 8080 and the GPU are free

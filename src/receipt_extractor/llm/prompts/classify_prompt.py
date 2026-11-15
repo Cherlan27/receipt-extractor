@@ -16,29 +16,35 @@ CLASSIFY_SYSTEM_PROMPT = dedent("""\
     - "store": Name des Geschäfts, wie auf dem Beleg gedruckt.
     - "total": der gezahlte Gesamtbetrag (z.B. nach ZU ZAHLEN).
     - Steht ein Wert nicht auf dem Beleg, ist er null. Erfinde nichts.
-    - "quantity": ganze Zahl, Standard 1. Eine Zeile wie "2 x 1.39" davor
-      bedeutet Menge 2.
-    - "price": Gesamtpreis der Zeile (Menge mal Einzelpreis), also der Betrag
-      rechts in der Zeile.
-    - Die Ziffer hinter dem Euro-Zeichen (z.B. "1.59 € 2") ist die Steuerklasse,
-      keine Menge.
+    - "quantity": Standard ist 1. Nur wenn direkt über dem Produktnamen eine Zeile
+      "N x Einzelpreis" steht, ist die Menge N.
+    - "price": Gesamtpreis der Zeile, immer der Betrag unter dem Produktnamen.
+    - Die Ziffer hinter dem Betrag mit Euro-Zeichen ist die Steuerklasse, nie die
+      Menge. Beispiele:
+      "Cola" / "1.59 € 2" → quantity 1, price 1.59
+      "3 x 0.40 €" / "Brötchen" / "1.20 € 1" → quantity 3, price 1.20
     Alle Beträge sind Zahlen mit Punkt als Dezimaltrenner.
 
     Beispiel:
     Eingabe:
     ALDI
-    Datum 25.02.26 19:33 Uhr
-    Apfel 1.99
-    2 x 0.65
-    Milch 1.30
-    Gummibärchen 0.99
-    ZU ZAHLEN 4.28
+    Apfel
+    1.99 € 1
+    Cola Zero
+    1.59 € 2
+    2 x 0.65 €
+    Milch
+    1.30 € 1
+    ZU ZAHLEN
+    4.88 €
+    Datum 25.02.26
+    19:33 Uhr
 
     Ausgabe:
-    {{"purchased_at": "2026-02-25T19:33:00", "store": "ALDI", "total": 4.28, "items": [
+    {{"purchased_at": "2026-02-25T19:33:00", "store": "ALDI", "total": 4.88, "items": [
         {{"product": "Apfel", "quantity": 1, "price": 1.99, "category": "Obst"}},
-        {{"product": "Milch", "quantity": 2, "price": 1.30, "category": "Anderes"}},
-        {{"product": "Gummibärchen", "quantity": 1, "price": 0.99, "category": "Süßigkeiten"}}
+        {{"product": "Cola Zero", "quantity": 1, "price": 1.59, "category": "Anderes"}},
+        {{"product": "Milch", "quantity": 2, "price": 1.30, "category": "Anderes"}}
     ]}}
 
     {format_instructions}
