@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
@@ -13,22 +15,41 @@ class TestReceiptItemPrice:
     def test_accepts_numeric_price(self):
         item = ReceiptItem(product="Apfel", price=1.99, category="Obst")
 
-        assert item.price == 1.99
+        assert item.price == Decimal("1.99")
 
     def test_accepts_dot_decimal_string(self):
         item = ReceiptItem(product="Apfel", price="1.99", category="Obst")
 
-        assert item.price == 1.99
+        assert item.price == Decimal("1.99")
 
     def test_normalizes_comma_decimal_string(self):
         item = ReceiptItem(product="Apfel", price="1,99", category="Obst")
 
-        assert item.price == 1.99
+        assert item.price == Decimal("1.99")
 
     def test_strips_currency_symbols_and_whitespace(self):
         item = ReceiptItem(product="Apfel", price=" 1,99 € ", category="Obst")
 
-        assert item.price == 1.99
+        assert item.price == Decimal("1.99")
+
+    @pytest.mark.parametrize("raw", [0.1, 0.2, "0.1", "0.2"])
+    def test_prices_are_exact_decimals(self, raw):
+        item = ReceiptItem(product="X", price=raw, category="Obst")
+
+        assert isinstance(item.price, Decimal)
+        assert item.price == Decimal(str(raw))
+
+    def test_sum_of_decimal_prices_is_exact(self):
+        a = ReceiptItem(product="X", price=0.1, category="Obst")
+        b = ReceiptItem(product="Y", price="0.2", category="Obst")
+
+        assert a.price + b.price == Decimal("0.3")
+
+    def test_json_output_uses_numbers_not_strings(self):
+        item = ReceiptItem(product="X", price="0.1", category="Obst")
+
+        assert item.model_dump(mode="json")["price"] == 0.1
+        assert '"price":0.1' in item.model_dump_json()
 
     def test_rejects_non_numeric_price(self):
         with pytest.raises(ValidationError):
@@ -37,22 +58,22 @@ class TestReceiptItemPrice:
     @pytest.mark.parametrize(
         ("raw", "expected"),
         [
-            ("12", 12.0),
-            ("€1,99", 1.99),
-            ("1,99 EUR", 1.99),
-            ("1,99 eur", 1.99),
-            ("$ 1.99", 1.99),
-            ("-0,25", -0.25),
-            ("1.234,56", 1234.56),
-            ("12.345.678,90", 12345678.90),
-            ("1,234.56", 1234.56),
-            ("1.234,5 €", 1234.5),
+            ("12", Decimal("12")),
+            ("€1,99", Decimal("1.99")),
+            ("1,99 EUR", Decimal("1.99")),
+            ("1,99 eur", Decimal("1.99")),
+            ("$ 1.99", Decimal("1.99")),
+            ("-0,25", Decimal("-0.25")),
+            ("1.234,56", Decimal("1234.56")),
+            ("12.345.678,90", Decimal("12345678.90")),
+            ("1,234.56", Decimal("1234.56")),
+            ("1.234,5 €", Decimal("1234.5")),
         ],
     )
     def test_parses_supported_formats(self, raw, expected):
         item = ReceiptItem(product="X", price=raw, category="Obst")
 
-        assert item.price == pytest.approx(expected)
+        assert item.price == expected
 
     @pytest.mark.parametrize(
         "raw",
@@ -93,7 +114,7 @@ class TestReceiptItemPrice:
     def test_allows_negative_numeric_price_for_discounts_and_deposit_refunds(self):
         item = ReceiptItem(product="Pfand", price=-0.25, category="Anderes")
 
-        assert item.price == -0.25
+        assert item.price == Decimal("-0.25")
 
 
 class TestReceiptItemCategory:
@@ -174,6 +195,7 @@ class TestReceiptClassification:
         assert result.model_dump(mode="json") == {
             "items": [{"product": "Apfel", "price": 1.99, "category": "Obst"}]
         }
+        assert isinstance(result.model_dump(mode="json")["items"][0]["price"], float)
 
     def test_allows_empty_items(self):
         assert ReceiptClassification(items=[]).items == []

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
@@ -34,8 +35,8 @@ class TestClassifyText:
         result = classifier.classify_text("Apfel 1.99\nMilch 1,29")
 
         assert [(i.product, i.price, i.category) for i in result.items] == [
-            ("Apfel", 1.99, Category.FRUIT),
-            ("Milch", 1.29, Category.OTHER),
+            ("Apfel", Decimal("1.99"), Category.FRUIT),
+            ("Milch", Decimal("1.29"), Category.OTHER),
         ]
 
     def test_accepts_json_wrapped_in_markdown_fence(self, classifier, llm_client):

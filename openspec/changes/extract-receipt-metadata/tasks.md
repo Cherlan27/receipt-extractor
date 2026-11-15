@@ -2,8 +2,8 @@ Every task: failing test first, then the minimal code, then refactor. Scenario n
 
 ## 1. Money as Decimal
 
-- [ ] 1.1 "Prices are exact decimals" (`tests/receipt_extractor/models/test_receipt.py`): `price` is a `Decimal`; JSON numbers and strings `0.1`/`0.2` parse to exact `Decimal("0.1")`/`Decimal("0.2")`; `model_dump(mode="json")` and the JSON response emit numbers, not strings. Then make `parse_price` return `Decimal` and convert numeric input via `Decimal(str(value))` (design 3)
-- [ ] 1.2 Update the existing price tests to expect `Decimal` values (required by the modified "Classified item structure" requirement, not a loosening); all existing price scenarios ("Comma decimal…", "Thousands separators…", "Currency symbols…", "Ambiguous price text…", "Non-finite…", "Negative prices…") stay green
+- [x] 1.1 "Prices are exact decimals" (`tests/receipt_extractor/models/test_receipt.py`): `price` is a `Decimal`; JSON numbers and strings `0.1`/`0.2` parse to exact `Decimal("0.1")`/`Decimal("0.2")`; `model_dump(mode="json")` and the JSON response emit numbers, not strings. Then make `parse_price` return `Decimal` and convert numeric input via `Decimal(str(value))` (design 3)
+- [x] 1.2 Update the existing price tests to expect `Decimal` values (required by the modified "Classified item structure" requirement, not a loosening); all existing price scenarios ("Comma decimal…", "Thousands separators…", "Currency symbols…", "Ambiguous price text…", "Non-finite…", "Negative prices…") stay green
 
 ## 2. Item quantity
 

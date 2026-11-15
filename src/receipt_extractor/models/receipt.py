@@ -1,8 +1,10 @@
 import logging
 import re
+from decimal import Decimal
 from enum import StrEnum
+from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, PlainSerializer, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +27,7 @@ _GERMAN_PRICE = re.compile(r"-?\d{1,3}(?:\.\d{3})+,\d{1,2}")
 _ENGLISH_PRICE = re.compile(r"-?\d{1,3}(?:,\d{3})+\.\d{1,2}")
 
 
-def parse_price(raw: str) -> float:
+def parse_price(raw: str) -> Decimal:
     """
     Parse a price string as written on a receipt.
 
@@ -40,17 +42,44 @@ def parse_price(raw: str) -> float:
     text = re.sub(r"(?i)(?:[€$£\s]|EUR)+$", "", text)
 
     if _GERMAN_PRICE.fullmatch(text):
-        return float(text.replace(".", "").replace(",", "."))
+        return Decimal(text.replace(".", "").replace(",", "."))
     if _ENGLISH_PRICE.fullmatch(text):
-        return float(text.replace(",", ""))
+        return Decimal(text.replace(",", ""))
     if _PLAIN_PRICE.fullmatch(text):
-        return float(text.replace(",", "."))
+        return Decimal(text.replace(",", "."))
     raise ValueError(f"Unrecognized price format: {raw!r}")
+
+
+def normalize_money(value):
+    """
+    Convert a model-reported amount to an exact Decimal.
+
+    Numbers go through str() so that 1.99 stays 1.99 and does not become
+    1.9899999...; strings use parse_price().
+
+    Raises:
+        ValueError: If the value is a boolean or not a recognized amount
+    """
+    if isinstance(value, bool):
+        raise ValueError("amount must be a number")
+    if isinstance(value, str):
+        return parse_price(value)
+    if isinstance(value, (int, float)):
+        return Decimal(str(value))
+    return value
+
+
+# Exact Decimal in Python, plain JSON number (not a string) in responses.
+Money = Annotated[
+    Decimal,
+    Field(allow_inf_nan=False),
+    PlainSerializer(float, return_type=float, when_used="json"),
+]
 
 
 class ReceiptItem(BaseModel):
     product: str = Field(min_length=1)
-    price: float = Field(allow_inf_nan=False)
+    price: Money
     category: Category
 
     @field_validator("product", mode="before")
@@ -61,11 +90,7 @@ class ReceiptItem(BaseModel):
     @field_validator("price", mode="before")
     @classmethod
     def normalize_price(cls, value):
-        if isinstance(value, bool):
-            raise ValueError("price must be a number")
-        if isinstance(value, str):
-            return parse_price(value)
-        return value
+        return normalize_money(value)
 
     @field_validator("category", mode="before")
     @classmethod
