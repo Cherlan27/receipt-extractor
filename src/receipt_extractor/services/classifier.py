@@ -1,4 +1,5 @@
 import logging
+from decimal import Decimal
 
 from langchain_core.exceptions import OutputParserException
 from langchain_core.output_parsers import PydanticOutputParser
@@ -38,7 +39,8 @@ class ReceiptClassifier:
             text (str): The receipt text, usually produced by OCR
 
         Returns:
-            ReceiptClassification: The ordered, validated list of items
+            ReceiptClassification: The receipt metadata and the ordered, validated
+            list of items
 
         Raises:
             ClassificationError: If the model output is not a valid classification
@@ -52,7 +54,22 @@ class ReceiptClassifier:
         )
 
         try:
-            return self.parser.parse(raw_output)
+            classification = self.parser.parse(raw_output)
         except OutputParserException as e:
             logger.error(f"Invalid classification output: {raw_output!r}")
             raise ClassificationError(str(e), raw_output) from e
+
+        self._warn_on_total_mismatch(classification)
+        return classification
+
+    @staticmethod
+    def _warn_on_total_mismatch(classification: ReceiptClassification) -> None:
+        if classification.total is None:
+            return
+        items_sum = sum((item.price for item in classification.items), Decimal(0))
+        if items_sum != classification.total:
+            logger.warning(
+                "Sum of item prices %s differs from receipt total %s",
+                items_sum,
+                classification.total,
+            )

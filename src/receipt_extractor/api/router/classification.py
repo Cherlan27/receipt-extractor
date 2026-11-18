@@ -42,4 +42,4 @@ async def classify_receipt(
         )
 
     classification = _classify(classifier, text)
-    return ReceiptClassificationResponse(items=classification.items, raw_text=text)
+    return ReceiptClassificationResponse(**dict(classification), raw_text=text)

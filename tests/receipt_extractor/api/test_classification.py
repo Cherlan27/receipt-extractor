@@ -7,16 +7,30 @@ from receipt_extractor.services.classifier import ClassificationError
 
 CLASSIFICATION = ReceiptClassification.model_validate(
     {
+        "purchased_at": "25.02.26",
+        "store": "ALDI",
+        "total": "2,98",
         "items": [
             {"product": "Apfel", "price": 1.99, "category": "Obst"},
-            {"product": "Gummibärchen", "price": "0,99", "category": "Süßigkeiten"},
-        ]
+            {
+                "product": "Gummibärchen",
+                "quantity": 2,
+                "price": "0,99",
+                "category": "Süßigkeiten",
+            },
+        ],
     }
 )
 EXPECTED_ITEMS = [
-    {"product": "Apfel", "price": 1.99, "category": "Obst"},
-    {"product": "Gummibärchen", "price": 0.99, "category": "Süßigkeiten"},
+    {"product": "Apfel", "quantity": 1, "price": 1.99, "category": "Obst"},
+    {
+        "product": "Gummibärchen",
+        "quantity": 2,
+        "price": 0.99,
+        "category": "Süßigkeiten",
+    },
 ]
+EXPECTED_METADATA = {"purchased_at": "2026-02-25", "store": "ALDI", "total": 2.98}
 
 
 def _upload(content: bytes = b"fake-image-bytes"):
@@ -32,7 +46,8 @@ class TestClassifyTextEndpoint:
         )
 
         assert response.status_code == 200
-        assert response.json() == {"items": EXPECTED_ITEMS}
+        assert response.json() == {**EXPECTED_METADATA, "items": EXPECTED_ITEMS}
+        assert "warnings" not in response.json()
         mock_classifier.classify_text.assert_called_once_with(
             "Apfel 1.99\nGummibärchen 0,99"
         )
@@ -52,7 +67,12 @@ class TestClassifyTextEndpoint:
         response = client.post("/classify_text", json={"text": "nothing"})
 
         assert response.status_code == 200
-        assert response.json() == {"items": []}
+        assert response.json() == {
+            "purchased_at": None,
+            "store": None,
+            "total": None,
+            "items": [],
+        }
 
     @pytest.mark.parametrize("body", [{"text": ""}, {"text": "   "}, {}])
     def test_returns_422_for_empty_or_missing_text(self, client, mock_classifier, body):
@@ -84,6 +104,7 @@ class TestClassifyReceiptEndpoint:
 
         assert response.status_code == 200
         assert response.json() == {
+            **EXPECTED_METADATA,
             "items": EXPECTED_ITEMS,
             "raw_text": "Apfel 1.99\nGummibärchen 0,99",
         }
