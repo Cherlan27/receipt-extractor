@@ -61,6 +61,9 @@ operations:
       - Do the real-model (GPU) checks named in the tasks yourself; do not leave
         them for a later phase. Stop the server afterwards so port 8080 and the
         GPU are free.
+      - Model loading takes minutes. Start the server and wait for port 8080 in
+        the same turn with a bounded loop (at most 15 minutes). Never end the
+        turn while the server loads; on timeout, stop the server and report.
   archive:
     guidance:
       - Archive on the change branch, before the pull request is merged.

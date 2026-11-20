@@ -23,6 +23,14 @@
       "Bash(node dist/cli.js:*)"
     ]
   },
+  "statusLine": {
+    "type": "command",
+    "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.trail/statusline.cjs\""
+  },
+  "subagentStatusLine": {
+    "type": "command",
+    "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.trail/statusline.cjs\""
+  },
   "footerLinksRegexes": [
     "graft/[\\w./-]+\\.md"
   ]

@@ -4,6 +4,9 @@
       "Bash(git commit -m ' *)"
     ]
   },
+  "enabledPlugins": {
+    "agent-workflow@agent-workflow": true
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -16,8 +19,5 @@
         ]
       }
     ]
-  },
-  "enabledPlugins": {
-    "agent-workflow@agent-workflow": true
   }
 }
