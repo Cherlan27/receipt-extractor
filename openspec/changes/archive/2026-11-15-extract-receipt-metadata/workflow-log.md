@@ -15,3 +15,6 @@
 - 2026-11-15T22:20 phase 3 review round 1 end @16e4c17, worker claude/opus, outcome: succeeded (0 critical, 0 major, 1 minor, 1 nit). Accept checked: only review.md changed.
 - 2026-11-15T22:20 Gate 2: human approved recommendation; R1 defer to #5 (comment posted on #5); N1 nit left as is. No fix phase, no round 2. Trail learning on VAT-digit misread committed (human yes).
 - 2026-11-15T22:20 phase 5 archive & PR start, worker claude/sonnet.
+- 2026-11-15T22:22 phase 5 archive & PR end @b64c1e1, worker claude/sonnet, outcome: succeeded. Coordinator verified: archived, pushed, PR #19 open and mergeable, make check 204 passed / specs 3 valid.
+- 2026-11-15T22:24 Gate 3: human chose not to merge yet; PR #19 stays open.
+- 2026-11-18T21:38 Gate 3: human approved merge; PR #19 merged as 784e563, remote branch deleted, issue #14 closed. These last lines stay local (log was committed before phase 5).
